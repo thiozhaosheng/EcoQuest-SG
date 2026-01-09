@@ -19,6 +19,9 @@ const supabaseClient = window.supabase.createClient(
   }
 );
 
+// Cross-tab sync (fixes “works only in incognito” + lock weirdness with magic link tabs)
+const AUTH_CHANNEL = new BroadcastChannel("ecoquest-auth");
+
 // =====================
 // HELPERS
 // =====================
@@ -39,7 +42,6 @@ function setStatus(msg) {
 function setRewardsStatus(msg) {
   const el = document.getElementById("rewardsStatusText");
   if (!el) return;
-
   const m = String(msg || "").trim();
   el.textContent = m || "";
 }
@@ -47,7 +49,6 @@ function setRewardsStatus(msg) {
 async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     return res;
@@ -126,11 +127,21 @@ async function handleMagicLinkRedirect() {
 
     setStatus("Finishing sign in...");
 
-    const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabaseClient.auth.exchangeCodeForSession(
+      code
+    );
     if (error) throw error;
 
+    // remove code from URL
     url.searchParams.delete("code");
     window.history.replaceState({}, document.title, url.toString());
+
+    // IMPORTANT: sync other tabs (prevents lock-timeout weirdness)
+    AUTH_CHANNEL.postMessage({
+      type: "SIGNED_IN",
+      at: Date.now(),
+      user: data?.session?.user?.id || null,
+    });
 
     setStatus("Signed in.");
   } catch (err) {
@@ -273,6 +284,7 @@ async function resetToGuestState(message = "Signed out.") {
 
   closeModal();
   closeRedeemModal();
+  closePlaceModal();
   renderLoggedOutProfile();
 
   const authBtn = document.getElementById("authBtn");
@@ -514,7 +526,6 @@ function renderProfile(profile) {
 
   renderBadges(profile.badges || []);
 
-  // Keep emoji badges in progress labels
   const current = Number(profile.points || 0);
   const TIERS = [
     { at: 50, label: "🌱 Green Starter" },
@@ -553,7 +564,6 @@ function renderLeaderboard(items) {
     return;
   }
 
-  // Keep medal emojis
   leaderboardList.innerHTML = items
     .map((row, idx) => {
       const medal =
@@ -819,8 +829,6 @@ async function handleRedeem(rewardId, buttonEl = null) {
 // CHECK-IN FLOW
 // =====================
 async function handleCheckin(placeId, buttonEl = null) {
-  console.log("Check-in clicked:", { placeId, userLocation });
-
   try {
     const token = await getAccessToken();
     if (!token) {
@@ -866,8 +874,38 @@ async function handleCheckin(placeId, buttonEl = null) {
 // INIT
 // =====================
 document.addEventListener("DOMContentLoaded", async () => {
+  setStatus("Loading...");
+
+  // 1) Handle magic link redirect FIRST
   await handleMagicLinkRedirect();
 
+  // 2) Cross-tab messages (fixes multi-tab magic link flow)
+  AUTH_CHANNEL.onmessage = async (msg) => {
+    const data = msg?.data;
+    if (!data?.type) return;
+
+    if (data.type === "SIGNED_IN") {
+      // Another tab finished signing in -> update UI here
+      try {
+        await updateAuthButton();
+        await loadProfileIfLoggedIn();
+        await loadMyRedemptions();
+        setStatus("Session synced.");
+      } catch (_) {}
+      return;
+    }
+
+    if (data.type === "SIGNED_OUT") {
+      try {
+        await resetToGuestState("Signed out.");
+        await updateAuthButton();
+      } catch (_) {}
+    }
+  };
+
+  // ---------------------
+  // Modal close handlers
+  // ---------------------
   const closeAuthModal = document.getElementById("closeAuthModal");
   const authModal = document.getElementById("authModal");
   if (closeAuthModal) closeAuthModal.addEventListener("click", closeModal);
@@ -896,10 +934,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  // ---------------------
+  // Global click handlers
+  // ---------------------
   document.addEventListener("click", (e) => {
     const btn = e.target?.closest?.(".detailsBtn");
     if (!btn) return;
-
     e.preventDefault();
 
     const raw = btn.getAttribute("data-place") || "{}";
@@ -909,7 +949,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch {
       place = null;
     }
-
     if (place) openPlaceModal(place);
   });
 
@@ -928,24 +967,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (ok) {
       btn.textContent = "Copied!";
       setTimeout(() => (btn.textContent = "Copy code"), 900);
-
-      const metaEl = document.getElementById("redeemMeta");
-      if (metaEl) {
-        const prev = metaEl.textContent;
-        metaEl.textContent = `${prev ? prev + " • " : ""}Copied to clipboard`;
-        setTimeout(() => {
-          metaEl.textContent = prev;
-        }, 1200);
-      }
-    } else {
-      const metaEl = document.getElementById("redeemMeta");
-      if (metaEl) {
-        const prev = metaEl.textContent;
-        metaEl.textContent = `${prev ? prev + " • " : ""}Copy blocked`;
-        setTimeout(() => {
-          metaEl.textContent = prev;
-        }, 1400);
-      }
     }
   });
 
@@ -965,10 +986,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     await handleRedeem(rewardId, btn);
   });
 
+  // ---------------------
+  // Header buttons
+  // ---------------------
   const authBtn = document.getElementById("authBtn");
-  if (!authBtn) {
-    console.error("authBtn not found. Check your index.html id='authBtn'");
-  } else {
+  if (authBtn) {
     authBtn.addEventListener("click", async (e) => {
       e.preventDefault();
 
@@ -982,19 +1004,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       setStatus("Signing out...");
 
       try {
-        const signOutPromise = supabaseClient.auth.signOut({ scope: "local" });
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Sign out timeout")), 4000)
-        );
-        await Promise.race([signOutPromise, timeoutPromise]);
+        await supabaseClient.auth.signOut();
       } catch (err) {
         console.warn("Sign out issue (ignored):", err);
       }
 
-      await resetToGuestState("Signed out.");
-      authBtn.disabled = false;
+      // broadcast to other tabs
+      AUTH_CHANNEL.postMessage({ type: "SIGNED_OUT", at: Date.now() });
 
-      setTimeout(() => window.location.reload(), 150);
+      await resetToGuestState("Signed out.");
+      await updateAuthButton();
+      authBtn.disabled = false;
     });
   }
 
@@ -1016,7 +1036,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (authMsg) authMsg.textContent = "Sending magic link...";
         sendMagicLinkBtn.disabled = true;
 
-        const redirectTo = window.location.origin + window.location.pathname;
+        // include marker (optional but helps debug)
+        const redirectTo =
+          window.location.origin + window.location.pathname + "?from=magic";
 
         const { error } = await supabaseClient.auth.signInWithOtp({
           email,
@@ -1047,21 +1069,27 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const refreshBtn = document.getElementById("refreshBtn");
   if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => {
+    refreshBtn.addEventListener("click", async () => {
       setStatus("Refreshing...");
-      refreshAll()
-        .then(() => setStatus("Loaded."))
-        .catch((e) => setStatus(`${e?.message || "Failed to refresh"}`));
+      try {
+        await refreshAll();
+        setStatus("Loaded.");
+      } catch (e) {
+        setStatus(`${e?.message || "Failed to refresh"}`);
+      }
     });
   }
 
   const loadPlacesBtn = document.getElementById("loadPlacesBtn");
   if (loadPlacesBtn) {
-    loadPlacesBtn.addEventListener("click", () => {
+    loadPlacesBtn.addEventListener("click", async () => {
       setStatus("Loading places...");
-      loadPlaces()
-        .then(() => setStatus("Places loaded."))
-        .catch((e) => setStatus(`${e?.message || "Failed to load places"}`));
+      try {
+        await loadPlaces();
+        setStatus("Places loaded.");
+      } catch (e) {
+        setStatus(`${e?.message || "Failed to load places"}`);
+      }
     });
   }
 
@@ -1078,15 +1106,48 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   }
 
-  supabaseClient.auth.onAuthStateChange(async (event) => {
+  // ---------------------
+  // KEY FIX: handle INITIAL_SESSION on refresh
+  // ---------------------
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if (event === "INITIAL_SESSION") {
+      // Always load public data
+      try {
+        await Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()]);
+      } catch (_) {}
+
+      await updateAuthButton();
+
+      if (session) {
+        closeModal();
+        await loadProfileIfLoggedIn();
+        await loadMyRedemptions();
+        await requestUserLocation(false);
+      } else {
+        renderLoggedOutProfile();
+      }
+
+      setStatus("Loaded.");
+      return;
+    }
+
     if (event === "SIGNED_IN") {
       closeModal();
       await updateAuthButton();
       setStatus("Signed in. Loading profile...");
+
+      try {
+        await Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()]);
+      } catch (_) {}
+
       await loadProfileIfLoggedIn();
       await loadMyRedemptions();
       await requestUserLocation(false);
 
+      // broadcast to other tabs (helps when SIGNED_IN happens without code param)
+      AUTH_CHANNEL.postMessage({ type: "SIGNED_IN", at: Date.now() });
+
+      // Continue pending actions
       if (pendingCheckinPlaceId) {
         const pid = pendingCheckinPlaceId;
         pendingCheckinPlaceId = null;
@@ -1099,17 +1160,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         pendingRedeemRewardId = null;
         await handleRedeem(rid);
       }
+
+      setStatus("Loaded.");
+      return;
     }
 
     if (event === "SIGNED_OUT") {
+      // broadcast to other tabs
+      AUTH_CHANNEL.postMessage({ type: "SIGNED_OUT", at: Date.now() });
+
       await resetToGuestState("Signed out.");
+      await updateAuthButton();
+      return;
     }
   });
 
-  setStatus("Loading...");
-  refreshAll()
-    .then(() => setStatus("Loaded."))
-    .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
-
-  requestUserLocation(false);
+  // Small UX: ask location quietly on load
+  requestUserLocation(false).catch(() => {});
 });
