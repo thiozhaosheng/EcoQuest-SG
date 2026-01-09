@@ -39,6 +39,7 @@ function setStatus(msg) {
 function setRewardsStatus(msg) {
   const el = document.getElementById("rewardsStatusText");
   if (!el) return;
+
   const m = String(msg || "").trim();
   el.textContent = m || "";
 }
@@ -46,6 +47,7 @@ function setRewardsStatus(msg) {
 async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     return res;
@@ -271,7 +273,6 @@ async function resetToGuestState(message = "Signed out.") {
 
   closeModal();
   closeRedeemModal();
-  closePlaceModal();
   renderLoggedOutProfile();
 
   const authBtn = document.getElementById("authBtn");
@@ -513,6 +514,7 @@ function renderProfile(profile) {
 
   renderBadges(profile.badges || []);
 
+  // Keep emoji badges in progress labels
   const current = Number(profile.points || 0);
   const TIERS = [
     { at: 50, label: "🌱 Green Starter" },
@@ -551,6 +553,7 @@ function renderLeaderboard(items) {
     return;
   }
 
+  // Keep medal emojis
   leaderboardList.innerHTML = items
     .map((row, idx) => {
       const medal =
@@ -816,6 +819,8 @@ async function handleRedeem(rewardId, buttonEl = null) {
 // CHECK-IN FLOW
 // =====================
 async function handleCheckin(placeId, buttonEl = null) {
+  console.log("Check-in clicked:", { placeId, userLocation });
+
   try {
     const token = await getAccessToken();
     if (!token) {
@@ -861,14 +866,8 @@ async function handleCheckin(placeId, buttonEl = null) {
 // INIT
 // =====================
 document.addEventListener("DOMContentLoaded", async () => {
-  setStatus("Loading...");
-
-  // 1) Handle magic link redirect FIRST
   await handleMagicLinkRedirect();
 
-  // ---------------------
-  // Modal close handlers
-  // ---------------------
   const closeAuthModal = document.getElementById("closeAuthModal");
   const authModal = document.getElementById("authModal");
   if (closeAuthModal) closeAuthModal.addEventListener("click", closeModal);
@@ -897,12 +896,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // ---------------------
-  // Global click handlers
-  // ---------------------
   document.addEventListener("click", (e) => {
     const btn = e.target?.closest?.(".detailsBtn");
     if (!btn) return;
+
     e.preventDefault();
 
     const raw = btn.getAttribute("data-place") || "{}";
@@ -912,6 +909,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch {
       place = null;
     }
+
     if (place) openPlaceModal(place);
   });
 
@@ -930,6 +928,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (ok) {
       btn.textContent = "Copied!";
       setTimeout(() => (btn.textContent = "Copy code"), 900);
+
+      const metaEl = document.getElementById("redeemMeta");
+      if (metaEl) {
+        const prev = metaEl.textContent;
+        metaEl.textContent = `${prev ? prev + " • " : ""}Copied to clipboard`;
+        setTimeout(() => {
+          metaEl.textContent = prev;
+        }, 1200);
+      }
+    } else {
+      const metaEl = document.getElementById("redeemMeta");
+      if (metaEl) {
+        const prev = metaEl.textContent;
+        metaEl.textContent = `${prev ? prev + " • " : ""}Copy blocked`;
+        setTimeout(() => {
+          metaEl.textContent = prev;
+        }, 1400);
+      }
     }
   });
 
@@ -949,11 +965,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     await handleRedeem(rewardId, btn);
   });
 
-  // ---------------------
-  // Header buttons
-  // ---------------------
   const authBtn = document.getElementById("authBtn");
-  if (authBtn) {
+  if (!authBtn) {
+    console.error("authBtn not found. Check your index.html id='authBtn'");
+  } else {
     authBtn.addEventListener("click", async (e) => {
       e.preventDefault();
 
@@ -967,13 +982,19 @@ document.addEventListener("DOMContentLoaded", async () => {
       setStatus("Signing out...");
 
       try {
-        await supabaseClient.auth.signOut();
+        const signOutPromise = supabaseClient.auth.signOut({ scope: "local" });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Sign out timeout")), 4000)
+        );
+        await Promise.race([signOutPromise, timeoutPromise]);
       } catch (err) {
         console.warn("Sign out issue (ignored):", err);
       }
 
       await resetToGuestState("Signed out.");
       authBtn.disabled = false;
+
+      setTimeout(() => window.location.reload(), 150);
     });
   }
 
@@ -1026,27 +1047,21 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const refreshBtn = document.getElementById("refreshBtn");
   if (refreshBtn) {
-    refreshBtn.addEventListener("click", async () => {
+    refreshBtn.addEventListener("click", () => {
       setStatus("Refreshing...");
-      try {
-        await refreshAll();
-        setStatus("Loaded.");
-      } catch (e) {
-        setStatus(`${e?.message || "Failed to refresh"}`);
-      }
+      refreshAll()
+        .then(() => setStatus("Loaded."))
+        .catch((e) => setStatus(`${e?.message || "Failed to refresh"}`));
     });
   }
 
   const loadPlacesBtn = document.getElementById("loadPlacesBtn");
   if (loadPlacesBtn) {
-    loadPlacesBtn.addEventListener("click", async () => {
+    loadPlacesBtn.addEventListener("click", () => {
       setStatus("Loading places...");
-      try {
-        await loadPlaces();
-        setStatus("Places loaded.");
-      } catch (e) {
-        setStatus(`${e?.message || "Failed to load places"}`);
-      }
+      loadPlaces()
+        .then(() => setStatus("Places loaded."))
+        .catch((e) => setStatus(`${e?.message || "Failed to load places"}`));
     });
   }
 
@@ -1063,47 +1078,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   }
 
-  // ---------------------
-  // KEY FIX: handle INITIAL_SESSION on refresh
-  // ---------------------
-  supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    if (event === "INITIAL_SESSION") {
-      // Always load public data
-      try {
-        await Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()]);
-      } catch (_) {}
-
-      await updateAuthButton();
-
-      if (session) {
-        closeModal();
-        await loadProfileIfLoggedIn();
-        await loadMyRedemptions();
-        // quietly try location
-        await requestUserLocation(false);
-      } else {
-        renderLoggedOutProfile();
-      }
-
-      setStatus("Loaded.");
-      return;
-    }
-
+  supabaseClient.auth.onAuthStateChange(async (event) => {
     if (event === "SIGNED_IN") {
       closeModal();
       await updateAuthButton();
       setStatus("Signed in. Loading profile...");
-
-      // refresh public + private after sign-in
-      try {
-        await Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()]);
-      } catch (_) {}
-
       await loadProfileIfLoggedIn();
       await loadMyRedemptions();
       await requestUserLocation(false);
 
-      // Continue pending actions
       if (pendingCheckinPlaceId) {
         const pid = pendingCheckinPlaceId;
         pendingCheckinPlaceId = null;
@@ -1116,18 +1099,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         pendingRedeemRewardId = null;
         await handleRedeem(rid);
       }
-
-      setStatus("Loaded.");
-      return;
     }
 
     if (event === "SIGNED_OUT") {
       await resetToGuestState("Signed out.");
-      await updateAuthButton();
-      return;
     }
   });
 
-  // Small UX: ask location quietly on load (does not sign out)
-  requestUserLocation(false).catch(() => {});
+  setStatus("Loading...");
+  refreshAll()
+    .then(() => setStatus("Loaded."))
+    .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
+
+  requestUserLocation(false);
 });
