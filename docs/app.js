@@ -1078,72 +1078,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   }
 
-supabaseClient.auth.onAuthStateChange(async (event, session) => {
-  // Runs on page load as well
-  if (event === "INITIAL_SESSION") {
-    // Always refresh public data
-    try {
-      await Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()]);
-    } catch (_) {}
-
-    if (session) {
-      // Session restored from storage
+  supabaseClient.auth.onAuthStateChange(async (event) => {
+    if (event === "SIGNED_IN") {
       closeModal();
       await updateAuthButton();
+      setStatus("Signed in. Loading profile...");
       await loadProfileIfLoggedIn();
       await loadMyRedemptions();
-      setStatus("Loaded.");
-      // optional: try to get location quietly
       await requestUserLocation(false);
-    } else {
-      // No session
-      renderLoggedOutProfile();
-      await updateAuthButton();
-      setStatus("Loaded.");
-    }
-    return;
-  }
 
-  if (event === "SIGNED_IN") {
-    closeModal();
-    await updateAuthButton();
-    setStatus("Signed in. Loading profile...");
+      if (pendingCheckinPlaceId) {
+        const pid = pendingCheckinPlaceId;
+        pendingCheckinPlaceId = null;
+        setStatus("Continuing your check-in...");
+        await handleCheckin(pid);
+      }
 
-    await loadProfileIfLoggedIn();
-    await loadMyRedemptions();
-    await requestUserLocation(false);
-
-    // Continue pending actions
-    if (pendingCheckinPlaceId) {
-      const pid = pendingCheckinPlaceId;
-      pendingCheckinPlaceId = null;
-      setStatus("Continuing your check-in...");
-      await handleCheckin(pid);
+      if (pendingRedeemRewardId) {
+        const rid = pendingRedeemRewardId;
+        pendingRedeemRewardId = null;
+        await handleRedeem(rid);
+      }
     }
 
-    if (pendingRedeemRewardId) {
-      const rid = pendingRedeemRewardId;
-      pendingRedeemRewardId = null;
-      await handleRedeem(rid);
+    if (event === "SIGNED_OUT") {
+      await resetToGuestState("Signed out.");
     }
+  });
 
-    setStatus("Loaded.");
-    return;
-  }
+  setStatus("Loading...");
+  refreshAll()
+    .then(() => setStatus("Loaded."))
+    .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
 
-  if (event === "SIGNED_OUT") {
-    await resetToGuestState("Signed out.");
-    await updateAuthButton();
-    return;
-  }
+  requestUserLocation(false);
 });
-
-setStatus("Loading...");
-
-// Only load public data here.
-// Logged-in data will load in INITIAL_SESSION.
-Promise.all([loadPlaces(), loadLeaderboard(), loadRewards()])
-  .then(() => setStatus("Loaded."))
-  .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
-
-requestUserLocation(false);
