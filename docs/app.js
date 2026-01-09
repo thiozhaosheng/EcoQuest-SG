@@ -166,7 +166,7 @@ function requestUserLocation(force = false) {
         }
         resolve(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 600000 }
     );
   });
 }
