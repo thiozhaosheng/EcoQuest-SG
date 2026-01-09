@@ -1,7 +1,7 @@
 // =====================
 // CONFIG
 // =====================
-const API_BASE = "http://localhost:3001";
+const API_BASE = "https://ecoquest-backend-uai1.onrender.com";
 
 const SUPABASE_URL = "https://lhrcfsdazjumpgytriec.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_Ub6kpTp9iwwAgxBl3Q5efQ_fuaVqMry";
