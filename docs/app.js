@@ -8,7 +8,15 @@ const SUPABASE_ANON_KEY = "sb_publishable_Ub6kpTp9iwwAgxBl3Q5efQ_fuaVqMry";
 
 const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,
-  SUPABASE_ANON_KEY
+  SUPABASE_ANON_KEY,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storage: window.localStorage,
+    },
+  }
 );
 
 // =====================
