@@ -1078,38 +1078,60 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   }
 
-  supabaseClient.auth.onAuthStateChange(async (event) => {
-    if (event === "SIGNED_IN") {
-      closeModal();
-      await updateAuthButton();
-      setStatus("Signed in. Loading profile...");
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+  // Runs on page load too (refresh). This is the key fix.
+  if (event === "INITIAL_SESSION") {
+    await updateAuthButton();
+
+    if (session) {
+      setStatus("Session restored. Loading...");
       await loadProfileIfLoggedIn();
       await loadMyRedemptions();
       await requestUserLocation(false);
+    } else {
+      renderLoggedOutProfile();
+    }
+    return;
+  }
 
-      if (pendingCheckinPlaceId) {
-        const pid = pendingCheckinPlaceId;
-        pendingCheckinPlaceId = null;
-        setStatus("Continuing your check-in...");
-        await handleCheckin(pid);
-      }
+  if (event === "SIGNED_IN") {
+    closeModal();
+    await updateAuthButton();
+    setStatus("Signed in. Loading profile...");
+    await loadProfileIfLoggedIn();
+    await loadMyRedemptions();
+    await requestUserLocation(false);
 
-      if (pendingRedeemRewardId) {
-        const rid = pendingRedeemRewardId;
-        pendingRedeemRewardId = null;
-        await handleRedeem(rid);
-      }
+    if (pendingCheckinPlaceId) {
+      const pid = pendingCheckinPlaceId;
+      pendingCheckinPlaceId = null;
+      setStatus("Continuing your check-in...");
+      await handleCheckin(pid);
     }
 
-    if (event === "SIGNED_OUT") {
-      await resetToGuestState("Signed out.");
+    if (pendingRedeemRewardId) {
+      const rid = pendingRedeemRewardId;
+      pendingRedeemRewardId = null;
+      await handleRedeem(rid);
     }
-  });
+    return;
+  }
 
-  setStatus("Loading...");
-  refreshAll()
-    .then(() => setStatus("Loaded."))
-    .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
-
-  requestUserLocation(false);
+  if (event === "SIGNED_OUT") {
+    await resetToGuestState("Signed out.");
+  }
 });
+
+setStatus("Loading...");
+
+// Try to paint correct auth UI immediately
+await updateAuthButton();
+await loadProfileIfLoggedIn();
+await loadMyRedemptions();
+
+// Load the rest
+refreshAll()
+  .then(() => setStatus("Loaded."))
+  .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
+
+requestUserLocation(false);
