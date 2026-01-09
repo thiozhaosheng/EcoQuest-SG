@@ -784,11 +784,7 @@ async function handleRedeem(rewardId, buttonEl = null) {
 
     const out = await apiPost("/api/redeem", { rewardId }, token);
 
-    await Promise.all([
-      loadProfileIfLoggedIn(),
-      loadMyRedemptions(),
-      loadLeaderboard(),
-    ]);
+    await Promise.all([loadProfileIfLoggedIn(), loadMyRedemptions()]);
 
     const voucherCode = out?.voucherCode || "";
     const costPoints = Number(out?.reward?.cost_points || 0);
