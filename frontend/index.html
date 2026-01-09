@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EcoQuest SG</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  </head>
+
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header
+      class="sticky top-0 z-20 border-b border-white/10 bg-slate-950/80 backdrop-blur"
+    >
+      <div
+        class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-400/20 bg-emerald-500/15"
+            aria-hidden="true"
+          >
+            🌿
+          </div>
+
+          <div>
+            <h1 class="text-lg font-semibold leading-tight">EcoQuest SG</h1>
+            <p class="text-xs text-slate-400">
+              Check in to eco-places • Earn points • Climb the leaderboard
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            id="useLocationBtn"
+            class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+            type="button"
+          >
+            Use my location
+          </button>
+
+          <button
+            id="refreshBtn"
+            class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            type="button"
+          >
+            Refresh
+          </button>
+
+          <button
+            id="authBtn"
+            class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
+            type="button"
+          >
+            Sign in
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto grid max-w-6xl gap-6 px-4 py-6 lg:grid-cols-12">
+      <section class="space-y-4 lg:col-span-8">
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div
+            class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+          >
+            <div class="space-y-1">
+              <h2 class="text-base font-semibold">Eco places</h2>
+              <p class="text-sm text-slate-400">
+                Browse, then check in when you’re near the place (within
+                radius).
+              </p>
+            </div>
+
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div class="flex flex-col">
+                <label for="searchInput" class="text-xs text-slate-400"
+                  >Search</label
+                >
+                <input
+                  id="searchInput"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="e.g. refill, recycling, NP..."
+                />
+              </div>
+
+              <div class="flex flex-col">
+                <label for="categorySelect" class="text-xs text-slate-400"
+                  >Category</label
+                >
+                <select
+                  id="categorySelect"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">All</option>
+                  <option value="Eco Store">Eco Store</option>
+                  <option value="Refill">Refill</option>
+                  <option value="Recycling">Recycling</option>
+                  <option value="Thrift">Thrift</option>
+                </select>
+              </div>
+
+              <div class="flex flex-col">
+                <span class="text-xs text-slate-400 opacity-0">Load</span>
+                <button
+                  id="loadPlacesBtn"
+                  class="mt-1 h-[42px] rounded-xl border border-white/10 bg-white/5 px-4 text-sm hover:bg-white/10"
+                  type="button"
+                >
+                  Load
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="mt-3 flex items-center justify-between text-sm text-slate-400"
+          >
+            <span id="statusText">Loading…</span>
+            <span>
+              Places: <span id="countText" class="text-slate-200">0</span>
+            </span>
+          </div>
+        </div>
+
+        <div id="placesGrid" class="grid gap-4 sm:grid-cols-2"></div>
+      </section>
+
+      <aside class="space-y-4 lg:col-span-4">
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-base font-semibold">Your profile</h2>
+              <p class="text-sm text-slate-400">Sign in to earn points.</p>
+            </div>
+          </div>
+
+          <div id="profileStats" class="mt-3 space-y-2 text-sm"></div>
+
+          <div class="mt-3">
+            <div class="mb-2 text-xs text-slate-400">Badges</div>
+            <div id="badgesWrap" class="flex flex-wrap gap-2"></div>
+          </div>
+
+          <div id="progressBox" class="mt-4 hidden">
+            <div
+              class="flex items-center justify-between text-xs text-slate-400"
+            >
+              <span>Progress</span>
+              <span id="progressText"></span>
+            </div>
+            <div
+              class="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10"
+            >
+              <div id="progressBar" class="h-full w-0 bg-emerald-500"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-base font-semibold">Leaderboard</h2>
+            <span class="text-xs text-slate-400">Top 10</span>
+          </div>
+
+          <ol id="leaderboardList" class="mt-3 space-y-2 text-sm"></ol>
+        </div>
+
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div>
+            <h2 class="text-base font-semibold">Rewards</h2>
+            <p class="text-xs text-slate-400">
+              Redeem your points for vouchers.
+            </p>
+            <div
+              id="rewardsStatusText"
+              class="mt-2 text-xs text-slate-400"
+            ></div>
+          </div>
+
+          <div id="rewardsGrid" class="mt-4 grid gap-3 sm:grid-cols-2"></div>
+
+          <div class="mt-4 border-t border-white/10 pt-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold">My redemptions</h3>
+              <span class="text-xs text-slate-400">Latest</span>
+            </div>
+
+            <ol id="myRedemptionsList" class="mt-3 space-y-2 text-sm"></ol>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <div
+      id="authModal"
+      class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4"
+      aria-hidden="true"
+    >
+      <div
+        class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="authTitle"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 id="authTitle" class="text-lg font-semibold">
+              Sign in to check in
+            </h3>
+            <p class="text-sm text-slate-400">
+              We’ll send you a magic link to your email.
+            </p>
+          </div>
+
+          <button
+            id="closeAuthModal"
+            class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+            type="button"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <label class="mt-4 block">
+          <span class="text-sm text-slate-300">Email</span>
+          <input
+            id="authEmail"
+            type="email"
+            class="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            placeholder="you@example.com"
+            autocomplete="email"
+          />
+        </label>
+
+        <button
+          id="sendMagicLinkBtn"
+          class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-700"
+          type="button"
+        >
+          Send magic link
+        </button>
+
+        <p id="authMsg" class="mt-3 text-sm text-slate-400"></p>
+      </div>
+    </div>
+
+    <div
+      id="redeemModal"
+      class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4"
+      aria-hidden="true"
+    >
+      <div
+        class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="redeemRewardName"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 id="redeemRewardName" class="text-lg font-semibold">
+              Reward redeemed
+            </h3>
+            <p id="redeemMeta" class="text-sm text-slate-400"></p>
+          </div>
+
+          <button
+            id="closeRedeemModal"
+            class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+            type="button"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          class="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+        >
+          <div class="text-xs text-slate-400">Your voucher code</div>
+
+          <div
+            id="redeemVoucherCode"
+            class="mt-2 select-all rounded-xl bg-black/20 px-3 py-2 font-mono text-2xl font-semibold tracking-widest"
+          >
+            CODE
+          </div>
+
+          <p class="mt-2 text-xs text-slate-400">
+            Copy and use it in the partner app.
+          </p>
+        </div>
+
+        <button
+          id="copyVoucherBtn"
+          class="mt-4 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm hover:bg-white/10"
+          type="button"
+        >
+          Copy code
+        </button>
+      </div>
+    </div>
+
+    <div
+      id="placeModal"
+      class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4"
+      aria-hidden="true"
+    >
+      <div
+        class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="placeModalTitle"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h3 id="placeModalTitle" class="truncate text-lg font-semibold">
+              Place
+            </h3>
+            <p id="placeModalSub" class="text-sm text-slate-400"></p>
+          </div>
+
+          <button
+            id="closePlaceModal"
+            class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+            type="button"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          class="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4"
+        >
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-slate-400">Points</div>
+            <div
+              id="placeModalPoints"
+              class="text-sm font-semibold text-emerald-200"
+            ></div>
+          </div>
+
+          <div class="mt-3 text-xs text-slate-400">Description</div>
+          <p id="placeModalDesc" class="mt-1 text-sm text-slate-200"></p>
+
+          <div class="mt-3 text-xs text-slate-400">Coordinates</div>
+          <div
+            id="placeModalCoords"
+            class="mt-1 font-mono text-sm text-slate-200"
+          ></div>
+        </div>
+
+        <div class="mt-4 flex gap-2">
+          <button
+            id="placeModalCheckinBtn"
+            class="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-700"
+            type="button"
+          >
+            Check-in
+          </button>
+
+          <a
+            id="placeModalMapsLink"
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm hover:bg-white/10"
+            target="_blank"
+            rel="noreferrer"
+            href="#"
+          >
+            Open Maps
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
