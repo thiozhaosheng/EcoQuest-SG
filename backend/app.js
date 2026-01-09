@@ -21,7 +21,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const RADIUS_METERS = 200;
+const RADIUS_METERS = 800;
 
 const APP_TZ = "Asia/Singapore";
 
