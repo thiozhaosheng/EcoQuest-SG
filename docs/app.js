@@ -1078,60 +1078,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   }
 
-  supabaseClient.auth.onAuthStateChange(async (event, session) => {
-  // Runs on page load too (refresh). This is the key fix.
-  if (event === "INITIAL_SESSION") {
-    await updateAuthButton();
-
-    if (session) {
-      setStatus("Session restored. Loading...");
+  supabaseClient.auth.onAuthStateChange(async (event) => {
+    if (event === "SIGNED_IN") {
+      closeModal();
+      await updateAuthButton();
+      setStatus("Signed in. Loading profile...");
       await loadProfileIfLoggedIn();
       await loadMyRedemptions();
       await requestUserLocation(false);
-    } else {
-      renderLoggedOutProfile();
-    }
-    return;
-  }
 
-  if (event === "SIGNED_IN") {
-    closeModal();
-    await updateAuthButton();
-    setStatus("Signed in. Loading profile...");
-    await loadProfileIfLoggedIn();
-    await loadMyRedemptions();
-    await requestUserLocation(false);
+      if (pendingCheckinPlaceId) {
+        const pid = pendingCheckinPlaceId;
+        pendingCheckinPlaceId = null;
+        setStatus("Continuing your check-in...");
+        await handleCheckin(pid);
+      }
 
-    if (pendingCheckinPlaceId) {
-      const pid = pendingCheckinPlaceId;
-      pendingCheckinPlaceId = null;
-      setStatus("Continuing your check-in...");
-      await handleCheckin(pid);
+      if (pendingRedeemRewardId) {
+        const rid = pendingRedeemRewardId;
+        pendingRedeemRewardId = null;
+        await handleRedeem(rid);
+      }
     }
 
-    if (pendingRedeemRewardId) {
-      const rid = pendingRedeemRewardId;
-      pendingRedeemRewardId = null;
-      await handleRedeem(rid);
+    if (event === "SIGNED_OUT") {
+      await resetToGuestState("Signed out.");
     }
-    return;
-  }
+  });
 
-  if (event === "SIGNED_OUT") {
-    await resetToGuestState("Signed out.");
-  }
+  setStatus("Loading...");
+  refreshAll()
+    .then(() => setStatus("Loaded."))
+    .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
+
+  requestUserLocation(false);
 });
-
-setStatus("Loading...");
-
-// Try to paint correct auth UI immediately
-await updateAuthButton();
-await loadProfileIfLoggedIn();
-await loadMyRedemptions();
-
-// Load the rest
-refreshAll()
-  .then(() => setStatus("Loaded."))
-  .catch((e) => setStatus(`${e?.message || "Backend not reachable"}`));
-
-requestUserLocation(false);
